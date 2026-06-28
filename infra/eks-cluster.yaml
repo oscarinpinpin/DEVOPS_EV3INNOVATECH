@@ -1,0 +1,42 @@
+# ==========================================================================
+# Configuracion del cluster EKS para AWS Academy Learner Lab.
+#
+# CLAVE: en Learner Lab NO puedes crear roles IAM nuevos. Solo existe "LabRole".
+# Por eso reutilizamos LabRole como rol del cluster y de los nodos.
+#
+# ANTES de usar este archivo, reemplaza <ACCOUNT_ID> por tu numero de cuenta:
+#   aws sts get-caller-identity --query Account --output text
+# Puedes hacerlo automaticamente con el script scripts/04-deploy.sh.
+# ==========================================================================
+apiVersion: eksctl.io/v1alpha5
+kind: ClusterConfig
+
+metadata:
+  name: innovatech-eks
+  region: us-east-1
+  # Sin 'version': eksctl elige una version de Kubernetes soportada por defecto.
+
+# Modo de autenticacion moderno (access entries). Le da admin a quien crea el
+# cluster (tu sesion de Learner Lab), por eso kubectl funciona de inmediato.
+accessConfig:
+  authenticationMode: API_AND_CONFIG_MAP
+  bootstrapClusterCreatorAdminPermissions: true
+
+iam:
+  withOIDC: false
+  # Rol de servicio del plano de control = LabRole
+  serviceRoleARN: arn:aws:iam::<ACCOUNT_ID>:role/LabRole
+
+managedNodeGroups:
+  - name: ng-innovatech
+    instanceType: t3.medium
+    desiredCapacity: 2
+    minSize: 2
+    maxSize: 3
+    volumeSize: 20
+    # Rol de los nodos (EC2) = LabRole. Asi no creamos roles nuevos.
+    iam:
+      instanceRoleARN: arn:aws:iam::<ACCOUNT_ID>:role/LabRole
+    # Etiqueta util para identificar los nodos
+    labels:
+      proyecto: innovatech

@@ -1,0 +1,49 @@
+# ==========================================================================
+# Autoscaling horizontal (HPA) para los backends.
+# IE3 de la rubrica. Requiere metrics-server instalado (ver guia).
+#
+# Umbral: 50% de CPU. Justificacion (para defender en la presentacion):
+#   - 50% deja margen para picos: cuando el promedio de CPU pasa de 50%,
+#     se agrega una replica ANTES de saturar el pod (no esperamos al 100%).
+#   - Evita "flapping": es un punto medio comun y estable para apps web.
+#   - min=1 ahorra recursos en reposo; max=4 acota el costo en Learner Lab.
+# ==========================================================================
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: ventas-hpa
+  namespace: innovatech
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: ventas
+  minReplicas: 1
+  maxReplicas: 4
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 50
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: despachos-hpa
+  namespace: innovatech
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: despachos
+  minReplicas: 1
+  maxReplicas: 4
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 50

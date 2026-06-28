@@ -1,0 +1,52 @@
+# ==========================================================================
+# FRONTEND (React + nginx). Es el UNICO componente expuesto publicamente.
+# Service type LoadBalancer => EKS crea un ELB de AWS con DNS publico.
+# nginx (dentro del pod) sirve el SPA y proxea /api hacia ventas-svc y
+# despachos-svc por DNS interno del cluster.
+# ==========================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frontend
+  namespace: innovatech
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: frontend
+  template:
+    metadata:
+      labels:
+        app: frontend
+    spec:
+      containers:
+        - name: frontend
+          image: <ACCOUNT_ID>.dkr.ecr.us-east-1.amazonaws.com/innovatech-frontend:latest
+          ports:
+            - containerPort: 80
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "64Mi"
+            limits:
+              cpu: "200m"
+              memory: "128Mi"
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 80
+            initialDelaySeconds: 5
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: frontend-svc
+  namespace: innovatech
+spec:
+  selector:
+    app: frontend
+  ports:
+    - port: 80
+      targetPort: 80
+  type: LoadBalancer   # <-- crea el balanceador publico de AWS

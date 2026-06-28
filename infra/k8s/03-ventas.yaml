@@ -1,0 +1,72 @@
+# ==========================================================================
+# Backend VENTAS (Spring Boot, puerto 8080).
+# La imagen sale de ECR. <ACCOUNT_ID> lo reemplaza el script 04-deploy.sh.
+# Las credenciales de BD vienen del Secret db-secret (IE5).
+# ==========================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ventas
+  namespace: innovatech
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ventas
+  template:
+    metadata:
+      labels:
+        app: ventas
+    spec:
+      containers:
+        - name: ventas
+          image: <ACCOUNT_ID>.dkr.ecr.us-east-1.amazonaws.com/innovatech-ventas:latest
+          ports:
+            - containerPort: 8080
+          env:
+            - name: DB_ENDPOINT
+              value: "mysql-svc"
+            - name: DB_PORT
+              value: "3306"
+            - name: DB_NAME
+              value: "ventasdb"
+            - name: DB_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: db-secret
+                  key: DB_USERNAME
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: db-secret
+                  key: DB_PASSWORD
+          resources:
+            requests:
+              cpu: "200m"
+              memory: "384Mi"
+            limits:
+              cpu: "500m"
+              memory: "768Mi"
+          readinessProbe:
+            tcpSocket:
+              port: 8080
+            initialDelaySeconds: 40
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: 8080
+            initialDelaySeconds: 60
+            periodSeconds: 20
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ventas-svc
+  namespace: innovatech
+spec:
+  selector:
+    app: ventas
+  ports:
+    - port: 8080
+      targetPort: 8080
+  type: ClusterIP   # interno: solo el front (nginx) lo llama

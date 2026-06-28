@@ -1,0 +1,89 @@
+# ==========================================================================
+# Pipeline CI/CD: build -> push (ECR) -> deploy (EKS)
+# Se dispara con cada push a main. IE4 de la rubrica.
+#
+# IMPORTANTE (Learner Lab): las credenciales de AWS son TEMPORALES y cambian
+# cada vez que reinicias el laboratorio. Antes de cada corrida debes refrescar
+# estos 3 secretos del repo (Settings -> Secrets and variables -> Actions):
+#   AWS_ACCESS_KEY_ID
+#   AWS_SECRET_ACCESS_KEY
+#   AWS_SESSION_TOKEN
+# Los copias de "AWS Details -> AWS CLI" en el Learner Lab.
+# ==========================================================================
+name: CI-CD InnovaTech EKS
+
+on:
+  push:
+    branches: [ "main" ]
+  workflow_dispatch: {}   # permite lanzarlo a mano desde la pestana Actions
+
+env:
+  AWS_REGION: us-east-1
+  CLUSTER: innovatech-eks
+  NAMESPACE: innovatech
+
+jobs:
+  build-push-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout del codigo
+        uses: actions/checkout@v4
+
+      - name: Configurar credenciales AWS (temporales de Learner Lab)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login a Amazon ECR
+        id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build & push de las 3 imagenes
+        env:
+          REGISTRY: ${{ steps.ecr.outputs.registry }}
+          TAG: ${{ github.sha }}
+        run: |
+          # VENTAS
+          docker build -t $REGISTRY/innovatech-ventas:$TAG \
+            -t $REGISTRY/innovatech-ventas:latest \
+            ./back-ventas-springboot/api-rest-ventas
+          docker push $REGISTRY/innovatech-ventas:$TAG
+          docker push $REGISTRY/innovatech-ventas:latest
+          # DESPACHOS
+          docker build -t $REGISTRY/innovatech-despachos:$TAG \
+            -t $REGISTRY/innovatech-despachos:latest \
+            ./back-bespachos-springboot/api-rest-despacho
+          docker push $REGISTRY/innovatech-despachos:$TAG
+          docker push $REGISTRY/innovatech-despachos:latest
+          # FRONTEND
+          docker build -t $REGISTRY/innovatech-frontend:$TAG \
+            -t $REGISTRY/innovatech-frontend:latest \
+            ./front-despacho
+          docker push $REGISTRY/innovatech-frontend:$TAG
+          docker push $REGISTRY/innovatech-frontend:latest
+
+      - name: Conectar kubectl al cluster EKS
+        run: |
+          aws eks update-kubeconfig --name $CLUSTER --region $AWS_REGION
+
+      - name: Deploy (actualiza la imagen de cada Deployment)
+        env:
+          REGISTRY: ${{ steps.ecr.outputs.registry }}
+          TAG: ${{ github.sha }}
+        run: |
+          kubectl -n $NAMESPACE set image deployment/ventas \
+            ventas=$REGISTRY/innovatech-ventas:$TAG
+          kubectl -n $NAMESPACE set image deployment/despachos \
+            despachos=$REGISTRY/innovatech-despachos:$TAG
+          kubectl -n $NAMESPACE set image deployment/frontend \
+            frontend=$REGISTRY/innovatech-frontend:$TAG
+          # Espera a que el rollout termine (falla el job si no converge)
+          kubectl -n $NAMESPACE rollout status deployment/ventas --timeout=180s
+          kubectl -n $NAMESPACE rollout status deployment/despachos --timeout=180s
+          kubectl -n $NAMESPACE rollout status deployment/frontend --timeout=120s
+
+      - name: Estado final
+        run: kubectl get pods,svc,hpa -n $NAMESPACE
