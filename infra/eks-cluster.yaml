@@ -4,7 +4,7 @@
 # CLAVE: en Learner Lab NO puedes crear roles IAM nuevos. Solo existe "LabRole".
 # Por eso reutilizamos LabRole como rol del cluster y de los nodos.
 #
-# ANTES de usar este archivo, reemplaza <ACCOUNT_ID> por tu numero de cuenta:
+# ANTES de usar este archivo, reemplaza 533588032385 por tu numero de cuenta:
 #   aws sts get-caller-identity --query Account --output text
 # Puedes hacerlo automaticamente con el script scripts/04-deploy.sh.
 # ==========================================================================
@@ -14,6 +14,7 @@ kind: ClusterConfig
 metadata:
   name: innovatech-eks
   region: us-east-1
+  version: "1.31"
   # Sin 'version': eksctl elige una version de Kubernetes soportada por defecto.
 
 # Modo de autenticacion moderno (access entries). Le da admin a quien crea el
@@ -25,7 +26,7 @@ accessConfig:
 iam:
   withOIDC: false
   # Rol de servicio del plano de control = LabRole
-  serviceRoleARN: arn:aws:iam::<ACCOUNT_ID>:role/LabRole
+  serviceRoleARN: arn:aws:iam::533588032385:role/LabRole
 
 managedNodeGroups:
   - name: ng-innovatech
@@ -36,7 +37,7 @@ managedNodeGroups:
     volumeSize: 20
     # Rol de los nodos (EC2) = LabRole. Asi no creamos roles nuevos.
     iam:
-      instanceRoleARN: arn:aws:iam::<ACCOUNT_ID>:role/LabRole
+      instanceRoleARN: arn:aws:iam::533588032385:role/LabRole
     # Etiqueta util para identificar los nodos
     labels:
       proyecto: innovatech
