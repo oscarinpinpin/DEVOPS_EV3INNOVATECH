@@ -1,88 +1,89 @@
 # ==========================================================================
-# docker-compose.yml — ENTORNO DE DESARROLLO LOCAL (IE2 de la rúbrica)
+# Pipeline CI/CD: build -> push (ECR) -> deploy (EKS)
+# Se dispara con cada push a main. IE4 de la rubrica.
 #
-# Levanta toda la plataforma InnovaTech en tu máquina con un solo comando:
-#     docker compose up --build
-# Luego abre:  http://localhost:8080
-#
-# NO se usa para el despliegue en la nube (eso son los manifiestos de
-# infra/k8s/). Este archivo es SOLO para desarrollo/prueba local, tal como
-# pide el indicador "Contenerización para Desarrollo Local".
-#
-# Los servicios ventas-svc y despachos-svc se llaman así a propósito: el
-# nginx del frontend proxea /api/v1/ventas -> ventas-svc:8080 y
-# /api/v1/despachos -> despachos-svc:8081 por esos nombres de host.
+# IMPORTANTE (Learner Lab): las credenciales de AWS son TEMPORALES y cambian
+# cada vez que reinicias el laboratorio. Antes de cada corrida debes refrescar
+# estos 3 secretos del repo (Settings -> Secrets and variables -> Actions):
+#   AWS_ACCESS_KEY_ID
+#   AWS_SECRET_ACCESS_KEY
+#   AWS_SESSION_TOKEN
+# Los copias de "AWS Details -> AWS CLI" en el Learner Lab.
 # ==========================================================================
-services:
+name: CI-CD InnovaTech EKS
 
-  # ---- Base de datos MySQL (crea ventasdb y despachosdb automáticamente) ----
-  mysql:
-    image: mysql:8.0
-    container_name: innovatech-mysql
-    environment:
-      MYSQL_ROOT_PASSWORD: Innovatech2025!
-    command: --default-authentication-plugin=mysql_native_password
-    ports:
-      - "3306:3306"          # expuesto solo para inspección local (opcional)
-    volumes:
-      - mysql-data:/var/lib/mysql   # volumen: los datos persisten entre reinicios
-    networks:
-      - innovatech-net
-    healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-p$$MYSQL_ROOT_PASSWORD"]
-      interval: 10s
-      timeout: 5s
-      retries: 12
+on:
+  push:
+    branches: [ "main" ]
+  workflow_dispatch: {}   # permite lanzarlo a mano desde la pestana Actions
 
-  # ---- Backend Ventas (Spring Boot :8080) ----
-  ventas-svc:
-    build: ./back-ventas-springboot/api-rest-ventas
-    container_name: innovatech-ventas
-    environment:
-      DB_ENDPOINT: mysql
-      DB_PORT: "3306"
-      DB_NAME: ventasdb
-      DB_USERNAME: root
-      DB_PASSWORD: Innovatech2025!
-    depends_on:
-      mysql:
-        condition: service_healthy
-    networks:
-      - innovatech-net
+env:
+  AWS_REGION: us-east-1
+  CLUSTER: innovatech-eks
+  NAMESPACE: innovatech
 
-  # ---- Backend Despachos (Spring Boot :8081) ----
-  despachos-svc:
-    build: ./back-bespachos-springboot/api-rest-despacho
-    container_name: innovatech-despachos
-    environment:
-      DB_ENDPOINT: mysql
-      DB_PORT: "3306"
-      DB_NAME: despachosdb
-      DB_USERNAME: root
-      DB_PASSWORD: Innovatech2025!
-    depends_on:
-      mysql:
-        condition: service_healthy
-    networks:
-      - innovatech-net
+jobs:
+  build-push-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout del codigo
+        uses: actions/checkout@v4
 
-  # ---- Frontend (React + nginx :80) — único expuesto al navegador ----
-  frontend:
-    build: ./front-despacho
-    container_name: innovatech-frontend
-    ports:
-      - "8080:80"            # abre http://localhost:8080
-    depends_on:
-      - ventas-svc
-      - despachos-svc
-    networks:
-      - innovatech-net
+      - name: Configurar credenciales AWS (temporales de Learner Lab)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: ${{ env.AWS_REGION }}
 
-# ---- Red interna del entorno de desarrollo ----
-networks:
-  innovatech-net:
-    driver: bridge
+      - name: Login a Amazon ECR
+        id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
 
-# ---- Volumen persistente de la base de datos ----
-volumes:
-  mysql-data:
+      - name: Build & push de las 3 imagenes
+        env:
+          REGISTRY: ${{ steps.ecr.outputs.registry }}
+          TAG: ${{ github.sha }}
+        run: |
+          # VENTAS
+          docker build -t $REGISTRY/innovatech-ventas:$TAG \
+            -t $REGISTRY/innovatech-ventas:latest \
+            ./back-ventas-springboot/api-rest-ventas
+          docker push $REGISTRY/innovatech-ventas:$TAG
+          docker push $REGISTRY/innovatech-ventas:latest
+          # DESPACHOS
+          docker build -t $REGISTRY/innovatech-despachos:$TAG \
+            -t $REGISTRY/innovatech-despachos:latest \
+            ./back-bespachos-springboot/api-rest-despacho
+          docker push $REGISTRY/innovatech-despachos:$TAG
+          docker push $REGISTRY/innovatech-despachos:latest
+          # FRONTEND
+          docker build -t $REGISTRY/innovatech-frontend:$TAG \
+            -t $REGISTRY/innovatech-frontend:latest \
+            ./front-despacho
+          docker push $REGISTRY/innovatech-frontend:$TAG
+          docker push $REGISTRY/innovatech-frontend:latest
+
+      - name: Conectar kubectl al cluster EKS
+        run: |
+          aws eks update-kubeconfig --name $CLUSTER --region $AWS_REGION
+
+      - name: Deploy (actualiza la imagen de cada Deployment)
+        env:
+          REGISTRY: ${{ steps.ecr.outputs.registry }}
+          TAG: ${{ github.sha }}
+        run: |
+          kubectl -n $NAMESPACE set image deployment/ventas \
+            ventas=$REGISTRY/innovatech-ventas:$TAG
+          kubectl -n $NAMESPACE set image deployment/despachos \
+            despachos=$REGISTRY/innovatech-despachos:$TAG
+          kubectl -n $NAMESPACE set image deployment/frontend \
+            frontend=$REGISTRY/innovatech-frontend:$TAG
+          # Espera a que el rollout termine (falla el job si no converge)
+          kubectl -n $NAMESPACE rollout status deployment/ventas --timeout=180s
+          kubectl -n $NAMESPACE rollout status deployment/despachos --timeout=180s
+          kubectl -n $NAMESPACE rollout status deployment/frontend --timeout=120s
+
+      - name: Estado final
+        run: kubectl get pods,svc,hpa -n $NAMESPACE
