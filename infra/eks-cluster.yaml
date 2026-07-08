@@ -26,7 +26,7 @@ accessConfig:
 iam:
   withOIDC: false
   # Rol de servicio del plano de control = LabRole
-  serviceRoleARN: arn:aws:iam::533588032385:role/LabRole
+  serviceRoleARN: arn:aws:iam::482260242804:role/LabRole
 
 managedNodeGroups:
   - name: ng-innovatech
@@ -37,7 +37,7 @@ managedNodeGroups:
     volumeSize: 20
     # Rol de los nodos (EC2) = LabRole. Asi no creamos roles nuevos.
     iam:
-      instanceRoleARN: arn:aws:iam::533588032385:role/LabRole
+      instanceRoleARN: arn:aws:iam::482260242804:role/LabRole
     # Etiqueta util para identificar los nodos
     labels:
       proyecto: innovatech

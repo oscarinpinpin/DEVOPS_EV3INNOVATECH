@@ -1,0 +1,67 @@
+services:
+
+  mysql:
+    image: mysql:8.0
+    container_name: innovatech-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: Innovatech2025!
+    command: --default-authentication-plugin=mysql_native_password
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql-data:/var/lib/mysql
+    networks:
+      - innovatech-net
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-p$$MYSQL_ROOT_PASSWORD"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  ventas-svc:
+    build: ./back-ventas-springboot/api-rest-ventas
+    container_name: innovatech-ventas
+    environment:
+      DB_ENDPOINT: mysql
+      DB_PORT: "3306"
+      DB_NAME: ventasdb
+      DB_USERNAME: root
+      DB_PASSWORD: Innovatech2025!
+    depends_on:
+      mysql:
+        condition: service_healthy
+    networks:
+      - innovatech-net
+
+  despachos-svc:
+    build: ./back-bespachos-springboot/api-rest-despacho
+    container_name: innovatech-despachos
+    environment:
+      DB_ENDPOINT: mysql
+      DB_PORT: "3306"
+      DB_NAME: despachosdb
+      DB_USERNAME: root
+      DB_PASSWORD: Innovatech2025!
+    depends_on:
+      mysql:
+        condition: service_healthy
+    networks:
+      - innovatech-net
+
+  frontend:
+    build: ./front-despacho
+    container_name: innovatech-frontend
+    ports:
+      - "8080:80"
+    depends_on:
+      - ventas-svc
+      - despachos-svc
+    networks:
+      - innovatech-net
+
+networks:
+  innovatech-net:
+    driver: bridge
+
+volumes:
+  mysql-data:
